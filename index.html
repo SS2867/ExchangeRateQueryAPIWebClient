@@ -13,8 +13,10 @@
         th, td {
             padding: 5px;
             border: 1px solid #ddd;
-            color: rgb(0, 0, 0);
             text-align: center;
+        }
+        a{
+            color: rgb(0, 0, 0);
         }
         input, button {
             padding: 10px;
@@ -152,9 +154,12 @@
 
             data.forEach(currency => {
                 html += `<tr>
-                    <td>${currency.currency}</td>
-                    <td>${currency.rate}</td>
-                    <td>${currency.inverse}</td>
+                    <td><a href="https://www.google.com/finance/quote/${CONFIG.MASTER_CURRENCY}-${currency.currency}"
+                        >${currency.currency}</a></td>
+                    <td><a href="https://www.google.com/finance/quote/${currency.currency}-${CONFIG.MASTER_CURRENCY}"
+                        >${currency.rate}</td>
+                    <td><a href="https://www.google.com/finance/quote/${CONFIG.MASTER_CURRENCY}-${currency.currency}"
+                        >${currency.inverse}</td>
                     ${renderVolatility(currency.volatilities['1day'])}
                     ${renderVolatility(currency.volatilities['7day'])}
                     ${renderVolatility(currency.volatilities['1month'])}
