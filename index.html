@@ -13,6 +13,7 @@
         th, td {
             padding: 5px;
             border: 1px solid #ddd;
+            color: rgb(0, 0, 0);
             text-align: center;
         }
         input, button {
@@ -41,14 +42,14 @@
     <div id="apiKeyLine">
         <label for="apiKey">API Auth Key:</label>
         <input type="password" id="apiKey" style="width: 300px;">
-        <button onclick="toggleKeyLine()">Input Decrypt Key</button>
+        <button id="inputDecryptKey" onclick="toggleKeyLine()">Input Decrypt Key</button>
         <button id="loadData" onclick="loadData()">Load Data</button>
     </div>
     <div id="decryptKeyLine" style="display: none">
         <label for="apiKey">Decrypt Key:</label>
         <input type="password" id="decryptKey" style="width: 300px;">
         <button onclick="toggleKeyLine()">Cancel</button>
-        <button onclick="(()=>{decryptKey();loadData();})()">Decrypt Auth Key & Load Data</button>
+        <button id="decryptAuthKey" onclick="(()=>{decryptKey();loadData();})()">Decrypt Auth Key & Load Data</button>
     </div>
     <table id="please-wait" style="display: none; height:30px; width:150px; background-color:#fff348" class="alert-msg" > 
         <tr><td>Please Wait</td></tr>
@@ -73,6 +74,7 @@
             ["apiKeyLine", "decryptKeyLine"].forEach(i=>{
                 const e=document.getElementById(i); 
                 e.style.display = e.style.display==="none"?"block":"none"});
+            Array.from(document.getElementsByTagName('input')).filter(e => e.offsetParent !== null)[0].focus();
         }
 
         function decryptKey(){
@@ -83,6 +85,9 @@
             d.value = '';
             toggleKeyLine();
         }
+        document.getElementById("decryptKey").addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {document.getElementById("decryptAuthKey").click();}
+        });
 
         function generateSignature(apiKey) {
             const timestamp = Date.now().toString();
@@ -126,6 +131,9 @@
                     `Server Response: ${jsonData?JSON.stringify(jsonData):"API returned no data or request failed to send."}`;
             }
         }
+        document.getElementById("apiKey").addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {document.getElementById("loadData").click();}
+        });
 
         function renderTable(data) {
             let html = `
@@ -165,8 +173,17 @@
             if (vol.isNew) value += ' (+)';
             return `<td${vol.isExceeded ? ' class="warning"' : ''}>${value}</td>`;
         }
+        
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        document.getElementById("apiKey").value = urlParams.get("apiKey")? urlParams.get("apiKey"): "";
         if(document.getElementById("apiKey").value == ""){
             document.getElementById("apiKey").value = 'WdKfV8BLAfZc1T2iynPVNcbOy7JGD05g'}
+        document.getElementById("apiKey").focus();
+        if(!["", "0", null, undefined, "false", "null"].some(i => urlParams.get("inputDecryptKey") == i)){
+            document.getElementById("inputDecryptKey").click();}
+        
+
     </script>
 </body>
 </html>
