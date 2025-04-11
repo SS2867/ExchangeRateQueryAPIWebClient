@@ -1,0 +1,173 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Exchange Rate Query</title>
+    <script src="Encryptor2.js"></script>
+    <script src="crypto-js.min.js"></script>
+    <style>
+        table {
+            border-collapse: collapse;
+            margin: 5px 0;
+        }
+        th, td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        input, button {
+            padding: 10px;
+            margin: 0px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .warning {
+            color: rgb(183, 0, 0);
+            font-weight: bold;
+        }
+        .alert-msg {
+            animation: color-transition 1s infinite;
+        }
+        @keyframes color-transition {
+            0%, 100%{background-color: #fff348;}
+            50% {background-color: #fb9f00;}
+        }
+    </style>
+</head>
+<body>
+    <div id="apiKeyLine">
+        <label for="apiKey">API Auth Key:</label>
+        <input type="password" id="apiKey" style="width: 300px;">
+        <button onclick="toggleKeyLine()">Input Decrypt Key</button>
+        <button id="loadData" onclick="loadData()">Load Data</button>
+    </div>
+    <div id="decryptKeyLine" style="display: none">
+        <label for="apiKey">Decrypt Key:</label>
+        <input type="password" id="decryptKey" style="width: 300px;">
+        <button onclick="toggleKeyLine()">Cancel</button>
+        <button onclick="(()=>{decryptKey();loadData();})()">Decrypt Auth Key & Load Data</button>
+    </div>
+    <table id="please-wait" style="display: none; height:30px; width:150px; background-color:#fff348" class="alert-msg" > 
+        <tr><td>Please Wait</td></tr>
+    </table>
+    <br>
+    <div id="result" style="white-space: pre"></div>
+
+    <script>
+        const BASE64_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+/"
+        const API_URL = "https://script.google.com/macros/s/AKfycbwpE6EFiD0-zAuub0V9W69q_z5OBz2eo0U_iZhjr_VUUgr5E9C2f0UNkq7xGI4N5f6V/exec";
+        const CONFIG = {
+            CURRENCY_LIST: ['CNY','HKD','USD','CAD','AUD','JPY','GBP','NZD','KRW','SGD','EUR','BTC','XAU','XAG'],
+            MASTER_CURRENCY: "HKD",
+            VOLATILITY_1DAY: 0.004,
+            VOLATILITY_7DAY: 0.004,
+            VOLATILITY_1MONTH: 0.01,
+            VOLATILITY_3MONTH: 0.02,
+            VOLATILITY_6MONTH: 0.02,
+        };
+
+        function toggleKeyLine(){
+            ["apiKeyLine", "decryptKeyLine"].forEach(i=>{
+                const e=document.getElementById(i); 
+                e.style.display = e.style.display==="none"?"block":"none"});
+        }
+
+        function decryptKey(){
+            const e = document.getElementById("apiKey");
+            const d = document.getElementById('decryptKey');
+            e.value = decryptText(encryptText(e.value, null, 48, 8, false, BASE64_CHARSET), 
+                d.value, 48, 8, false, BASE64_CHARSET);
+            d.value = '';
+            toggleKeyLine();
+        }
+
+        function generateSignature(apiKey) {
+            const timestamp = Date.now().toString();
+            const nonce = Array(8).fill(0).map(() => 
+                String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
+            const signature = CryptoJS.HmacSHA256(timestamp + nonce, apiKey).toString();
+            return { timestamp, nonce, signature };
+        }
+
+        async function loadData() {
+            document.getElementById("please-wait").style.display = "block";
+            document.getElementById("loadData").setAttribute("disabled", "");
+            const apiKey = document.getElementById('apiKey').value;
+            let jsonData;
+            try {
+                const { timestamp, nonce, signature } = generateSignature(apiKey);
+                const dataKey = encryptText(apiKey, timestamp + nonce);
+                
+                const params = new URLSearchParams({
+                    timestamp,
+                    signature,
+                    nonce,
+                    data: encryptText(JSON.stringify(CONFIG), dataKey)
+                });
+
+                const response = await fetch(`${API_URL}?${params}`);
+                jsonData = await response.json();
+                console.log(jsonData);
+                const decryptedData = JSON.parse(
+                    decryptText(jsonData.data, dataKey)
+                );
+                document.getElementById("please-wait").style.display = "none";
+                document.getElementById("loadData").removeAttribute("disabled");
+                renderTable(decryptedData);
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById("please-wait").style.display = "none";
+                document.getElementById("loadData").removeAttribute("disabled");
+                document.getElementById('result').innerHTML = 
+                    `Request failed:<br><br>${error.message} <br><br>`+
+                    `Server Response: ${jsonData?JSON.stringify(jsonData):"API returned no data or request failed to send."}`;
+            }
+        }
+
+        function renderTable(data) {
+            let html = `
+                <table>
+                    <tr>
+                        <th>Currency</th>
+                        <th>Rate</th>
+                        <th>Inv Rate</th>
+                        <th>1 Day</th>
+                        <th>7 Day</th>
+                        <th>1 Month</th>
+                        <th>3 Month</th>
+                        <th>6 Month</th>
+                    </tr>`;
+
+            data.forEach(currency => {
+                html += `<tr>
+                    <td>${currency.currency}</td>
+                    <td>${currency.rate}</td>
+                    <td>${currency.inverse}</td>
+                    ${renderVolatility(currency.volatilities['1day'])}
+                    ${renderVolatility(currency.volatilities['7day'])}
+                    ${renderVolatility(currency.volatilities['1month'])}
+                    ${renderVolatility(currency.volatilities['3month'])}
+                    ${renderVolatility(currency.volatilities['6month'])}
+                </tr>`;
+            });
+
+            html += `</table><p>All volatility values shown as percentage change</p>`;
+            document.getElementById('result').innerHTML = html;
+        }
+
+        function renderVolatility(vol) {
+            let value = (vol.value>0?"+":"") +(vol.value * 100).toFixed(2) + '%';
+            if (vol.isExceeded) value = `<b>${value} !</b>`;
+            if (vol.isNew) value += ' (+)';
+            return `<td${vol.isExceeded ? ' class="warning"' : ''}>${value}</td>`;
+        }
+        if(document.getElementById("apiKey").value == ""){
+            document.getElementById("apiKey").value = 'WdKfV8BLAfZc1T2iynPVNcbOy7JGD05g'}
+    </script>
+</body>
+</html>
+
+
