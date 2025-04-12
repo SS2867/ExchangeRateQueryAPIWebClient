@@ -2,6 +2,8 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Exchange Rate Query</title>
     <script src="Encryptor2.js"></script>
     <script src="crypto-js.min.js"></script>
@@ -53,11 +55,12 @@
         <button onclick="toggleKeyLine()">Cancel</button>
         <button id="decryptAuthKey" onclick="(()=>{decryptKey();loadData();})()">Decrypt Auth Key & Load Data</button>
     </div>
+    <button id="openInNewPage" onclick="toggleOpenInNewPage()">Open in New Page: On</button>
     <table id="please-wait" style="display: none; height:30px; width:150px; background-color:#fff348" class="alert-msg" > 
         <tr><td>Please Wait</td></tr>
     </table>
     <br>
-    <div id="result" style="white-space: pre"></div>
+    <div id="result" style="white-space: pre;"></div>
 
     <script>
         const BASE64_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+/"
@@ -97,6 +100,13 @@
                 String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
             const signature = CryptoJS.HmacSHA256(timestamp + nonce, apiKey).toString();
             return { timestamp, nonce, signature };
+        }
+
+        let openInNewPage = true;
+        function toggleOpenInNewPage(){
+            openInNewPage = !openInNewPage;
+            Array.from(document.getElementsByTagName("a")).forEach( i=>{i.target = openInNewPage? "_blank":"";});
+            document.getElementById("openInNewPage").innerHTML =  "Open in New Page: "+ (openInNewPage?"On":"Off");
         }
 
         async function loadData() {
@@ -155,11 +165,11 @@
             data.forEach(currency => {
                 html += `<tr>
                     <td><a href="https://www.google.com/finance/quote/${CONFIG.MASTER_CURRENCY}-${currency.currency}"
-                        >${currency.currency}</a></td>
+                        ${openInNewPage?"target=\"_blank\"":""}>${currency.currency}</a></td>
                     <td><a href="https://www.google.com/finance/quote/${currency.currency}-${CONFIG.MASTER_CURRENCY}"
-                        >${currency.rate}</td>
+                        ${openInNewPage?"target=\"_blank\"":""}>${currency.rate}</td>
                     <td><a href="https://www.google.com/finance/quote/${CONFIG.MASTER_CURRENCY}-${currency.currency}"
-                        >${currency.inverse}</td>
+                        ${openInNewPage?"target=\"_blank\"":""}>${currency.inverse}</td>
                     ${renderVolatility(currency.volatilities['1day'])}
                     ${renderVolatility(currency.volatilities['7day'])}
                     ${renderVolatility(currency.volatilities['1month'])}
