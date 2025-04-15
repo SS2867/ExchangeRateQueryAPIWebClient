@@ -185,7 +185,7 @@
         function renderVolatility(vol) {
             let value = (vol.value>0?"+":"") +(vol.value * 100).toFixed(2) + '%';
             if (vol.isExceeded) value = `<b>${value} !</b>`;
-            if (vol.isNew) value += ' (+)';
+            if (vol.isNew) value += ' O';
             return `<td${vol.isExceeded ? ' class="warning"' : ''}>${value}</td>`;
         }
         
