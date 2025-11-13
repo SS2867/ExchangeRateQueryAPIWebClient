@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Exchange Rate Query</title>
-    <script src="Encryptor2.js"></script>
+    <script src="Encryptor3.js"></script>
     <script src="crypto-js.min.js"></script>
     <style>
         table {
@@ -54,8 +54,17 @@
         <input type="password" id="decryptKey" style="width: 300px;">
         <button onclick="toggleKeyLine()">Cancel</button>
         <button id="decryptAuthKey" onclick="(()=>{decryptKey();loadData();})()">Decrypt Auth Key & Load Data</button>
+    </div><br>  
+    <div>
+        <label for="currencyFilter">Currencies to display (space separated):</label>
+        <input type="text" id="currencyFilter" style="width: 400px;">
     </div>
-    <button id="openInNewPage" onclick="toggleOpenInNewPage()">Open in New Page: On</button>
+    <div>
+        <label for="masterCurrencyInput">Master Currency:</label>
+        <input type="text" id="masterCurrencyInput" style="width: 80px;" value="HKD">
+        <button id="applySettings" onclick="applySettings()">Apply</button>
+        <button id="openInNewPage" onclick="toggleOpenInNewPage()">Open in New Page: On</button>
+    </div>
     <table id="please-wait" style="display: none; height:30px; width:150px; background-color:#fff348" class="alert-msg" > 
         <tr><td>Please Wait</td></tr>
     </table>
@@ -64,15 +73,19 @@
 
     <script>
         const BASE64_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+/"
-        const API_URL = "https://script.google.com/macros/s/AKfycby6_Lau3puQ7WeM70ZYwyULHfWupXhtUmsM17ynVYiB-E0FR3_MVP1kfmyOdFUjkhkq/exec";
+        const API_URL = "https://script.google.com/macros/s/AKfycbx7mShYwK6xdpUdjGZEjF9E2g9rdCyjzy10kqd21-RkSRMRwbl7m0U6WTpSrDTe-K0D/exec";
         const CONFIG = {
-            CURRENCY_LIST: ['CNY','HKD','USD','CAD','AUD','JPY','GBP','NZD','KRW','SGD','EUR','BTC','XAU','XAG'],
-            MASTER_CURRENCY: "HKD",
-            VOLATILITY_1DAY: 0.004,
-            VOLATILITY_7DAY: 0.004,
-            VOLATILITY_1MONTH: 0.01,
-            VOLATILITY_3MONTH: 0.02,
-            VOLATILITY_6MONTH: 0.02,
+            //CURRENCY_LIST: ['CNY','HKD','USD','CAD','AUD','JPY','GBP','NZD','KRW','SGD','EUR','BTC','XAU','XAG'],
+            //MASTER_CURRENCY: "HKD",
+            //VOLATILITY_1DAY: 0.004,
+            //VOLATILITY_7DAY: 0.004,
+            //VOLATILITY_1MONTH: 0.01,
+            //VOLATILITY_3MONTH: 0.02,
+            //VOLATILITY_6MONTH: 0.02,
+        };
+        let currentSettings = {
+            currencyList: [],
+            masterCurrency: "USD",
         };
 
         function toggleKeyLine(){
@@ -85,8 +98,8 @@
         function decryptKey(){
             const e = document.getElementById("apiKey");
             const d = document.getElementById('decryptKey');
-            e.value = decryptText(encryptText(e.value, null, 48, 8, false, BASE64_CHARSET), 
-                d.value, 48, 8, false, BASE64_CHARSET);
+            e.value = decryptText(encryptText(e.value, null, 48, 8, false, BASE64_CHARSET, PRINTABLE_ASCII), 
+                d.value, 48, 8, false, BASE64_CHARSET, PRINTABLE_ASCII);
             d.value = '';
             toggleKeyLine();
         }
@@ -102,13 +115,32 @@
             return { timestamp, nonce, signature };
         }
 
+        function applySettings() {
+            const currencyInput = document.getElementById('currencyFilter').value.trim();
+            const masterInput = document.getElementById('masterCurrencyInput').value.trim().toUpperCase();
+            
+            currentSettings.currencyList = currencyInput 
+                ? currencyInput.split(/\s+/).map(c => c.toUpperCase())
+                : Object.keys(data_cache.rates ? data_cache.rates:{});
+            
+            currentSettings.masterCurrency = masterInput || "USD";
+            
+            if (Object.keys(data_cache).length > 0) {
+                renderTable(data_cache);
+            }
+        }
+        document.getElementById('currencyFilter').addEventListener('blur', applySettings);
+        document.getElementById('masterCurrencyInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') applySettings();
+        });
+
         let openInNewPage = true;
         function toggleOpenInNewPage(){
             openInNewPage = !openInNewPage;
             Array.from(document.getElementsByTagName("a")).forEach( i=>{i.target = openInNewPage? "_blank":"";});
             document.getElementById("openInNewPage").innerHTML =  "Open in New Page: "+ (openInNewPage?"On":"Off");
         }
-
+        let data_cache = {};
         async function loadData() {
             document.getElementById("please-wait").style.display = "block";
             document.getElementById("loadData").setAttribute("disabled", "");
@@ -117,6 +149,7 @@
             try {
                 const { timestamp, nonce, signature } = generateSignature(apiKey);
                 const dataKey = encryptText(apiKey, timestamp + nonce);
+                console.log(`dataKey=${dataKey}`);
                 
                 const params = new URLSearchParams({
                     timestamp,
@@ -126,6 +159,7 @@
                 });
 
                 const response = await fetch(`${API_URL}?${params}`);
+                console.log(`${API_URL}?${params}`)
                 jsonData = await response.json();
                 console.log(jsonData);
                 const decryptedData = JSON.parse(
@@ -133,6 +167,8 @@
                 );
                 document.getElementById("please-wait").style.display = "none";
                 document.getElementById("loadData").removeAttribute("disabled");
+                data_cache = decryptedData;
+                applySettings();
                 renderTable(decryptedData);
             } catch (error) {
                 console.error('Error:', error);
@@ -161,15 +197,60 @@
                         <th>3 Month</th>
                         <th>6 Month</th>
                     </tr>`.replaceAll("    ", "").replaceAll("\n", "");
-
+            
+            
+            const masterCurrency = currentSettings.masterCurrency;
+            const currencyFilter = currentSettings.currencyList;
+            
+            // 获取主货币汇率
+            let rateToMaster;
+            let allCurrencies = [];
             data.forEach(currency => {
+                allCurrencies.push(currency.currency);
+                if(currency.currency===masterCurrency){rateToMaster=currency.rate;}
+            })
+            if (!rateToMaster) {
+                document.getElementById('result').innerHTML = `<p class="warning">Error: Master currency ${masterCurrency} not found in data ${allCurrencies}</p>`;
+                return;
+            }
+
+            // 处理货币列表
+            const displayCurrencies = currencyFilter.length > 0 
+                ? currencyFilter.filter(c => allCurrencies.includes(c))
+                : allCurrencies;
+
+            const displayCurrenciesData = data
+                .filter(c => displayCurrencies.includes(c.currency) )
+                .sort((a, b) => displayCurrencies.indexOf(a.currency) - displayCurrencies.indexOf(b.currency));
+
+            // 计算转换后的汇率
+            let convertedData = displayCurrenciesData.map((currency, idx) => {
+                let rate, inverse;
+                if (currency === masterCurrency) {
+                    rate = 1;
+                    inverse = 1;
+                } else {
+                    const currencyRate = currency.rate;
+                    rate = currencyRate ? currencyRate / rateToMaster : null;
+                    inverse = currencyRate ? rateToMaster / currencyRate : null;
+                }
+                return {
+                    currency: currency.currency,
+                    rate: rate==null? null: rate,
+                    inverse: inverse,
+                    volatilities: currency.volatilities,
+                };
+            });
+            
+            convertedData.forEach(currency => {
+                const isMasterCurrency = currency.currency==masterCurrency;
                 html += `<tr>
-                    <td><a href="https://www.google.com/finance/quote/${CONFIG.MASTER_CURRENCY}-${currency.currency}"
-                        ${openInNewPage?"target=\"_blank\"":""}>${currency.currency}</a></td>
-                    <td><a href="https://www.google.com/finance/quote/${currency.currency}-${CONFIG.MASTER_CURRENCY}"
-                        ${openInNewPage?"target=\"_blank\"":""}>${currency.rate}</td>
-                    <td><a href="https://www.google.com/finance/quote/${CONFIG.MASTER_CURRENCY}-${currency.currency}"
-                        ${openInNewPage?"target=\"_blank\"":""}>${currency.inverse}</td>
+                    <td><a ${currency.rate?`onclick="setMasterCurrency('${currency.currency}')"`:""} style=""
+                        >${isMasterCurrency?"<strong>▶ ":(currency.rate?"▢ ":"▧ ")}${currency.currency}${isMasterCurrency?"</strong>":""}</a></td>
+                    <td><a href="https://www.google.com/finance/quote/${currency.currency}-${masterCurrency}"
+                        ${openInNewPage?"target=\"_blank\"":""}>${currency.rate==null?null:currency.rate.toFixed(4)}</td>
+                    <td><a href="https://www.google.com/finance/quote/${masterCurrency}-${currency.currency}"
+                        ${openInNewPage?"target=\"_blank\"":""}>${currency.inverse==null?null:currency.inverse.toFixed(4)}</td>
                     ${renderVolatility(currency.volatilities['1day'])}
                     ${renderVolatility(currency.volatilities['7day'])}
                     ${renderVolatility(currency.volatilities['1month'])}
@@ -183,10 +264,14 @@
         }
 
         function renderVolatility(vol) {
-            let value = (vol.value>0?"+":"") +(vol.value * 100).toFixed(2) + '%';
+            let value = (vol.value>0?"+":"") + (vol.value==null? null:(vol.value * 100).toFixed(2) + '%' );
             if (vol.isExceeded) value = `<b>${value} !</b>`;
             if (vol.isNew) value += ' O';
             return `<td${vol.isExceeded ? ' class="warning"' : ''}>${value}</td>`;
+        }
+        function setMasterCurrency(currency) {
+            document.getElementById('masterCurrencyInput').value = currency;
+            applySettings();
         }
         
         
@@ -197,6 +282,9 @@
         document.getElementById("apiKey").focus();
         if(!["", "0", null, undefined, "false", "null"].some(i => urlParams.get("inputDecryptKey") == i)){
             document.getElementById("inputDecryptKey").click();}
+        document.getElementById("masterCurrencyInput").value = urlParams.get("masterCurrency")??"USD";
+        document.getElementById("currencyFilter").value = urlParams.get("currencyFilter") ?
+            urlParams.get("currencyFilter").replaceAll("-", " ") : "";
         
 
     </script>
