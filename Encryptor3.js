@@ -66,7 +66,7 @@ function pythonMod(a, b) {
 }
 
 PRINTABLE_ASCII = ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'
-UTF8 = "{UTF-8}Special-flag||Sw4XnSBivsa53e1kGmbY0uZmBz0KPRLq0ee6svJr5W0Gb5dPpQ58u3y6lwBnSYAl||"
+UTF8 = ["{UTF-8}Special-flag||Sw4XnSBivsa53e1kGmbY0uZmBz0KPRLq0ee6svJr5W0Gb5dPpQ58u3y6lwBnSYAl||", 238571684978]
 
 function textToBlock(text, blockSize = 48, textCharBlank = true, validChars = UTF8) {
     // UTF-8 模式处理
@@ -282,47 +282,75 @@ function linearShiftForward(plainTextBlockList, keyBlockList, subBlockSize = 16)
     const mask = subBlockSpaces - 1;
     const cipherTextBlockList = [];
     
+    // 在函数作用域初始化（与Python相同，跨块累积状态）
+    const frag_factor = Math.floor(subBlockSize / Math.max(3, Math.floor(subBlockSize / 16)));
+    let factors = [];
+    let temp_i_add = 0;
+
     for (const plainTextBlock of plainTextBlockList) {
+        // 处理单个整数或数组形式的输入块
         const plainTextBlocks = Array.isArray(plainTextBlock) ? plainTextBlock : [plainTextBlock];
+        
+        // 展平为子块列表
         let plainTextSubblocks = [];
-        
-        for (const i of plainTextBlocks) {
-            plainTextSubblocks.push(...decimalToBase(i, subBlockSpaces));
+        for (const num of plainTextBlocks) {
+            plainTextSubblocks.push(...decimalToBase(num, subBlockSpaces));
         }
-        
         const m = plainTextSubblocks.length;
-        
-        for (let round = 0; round < 1; round++) {
-            for (let index = 0; index < keyBlockList.length; index++) {
-                const i = keyBlockList[index];
-                const tempIAdd = i + Math.floor(i / 3) + Math.floor(i / 17);
-                const tempIndex = index + 1;
-                
-                // 预计算所有j的因子
-                const factors = [];
-                for (let j = 0; j < m; j++) {
-                    factors.push(tempIndex * (j + 2));
-                }
-                
-                for (let j = 0; j < m; j++) {
-                    // 第一个操作
-                    //plainTextSubblocks[j] = (plainTextSubblocks[j] + tempIAdd + factors[j]) & mask;
-                    
-                    // 如果j>0，执行第二个操作
-                    if (j > 0||1) {
-                        const prevVal = m-1? plainTextSubblocks[pythonMod(j - 1, m)] : 0;
-                        const addTerm = i + factors[j] + prevVal;
-                        plainTextSubblocks[j] = (plainTextSubblocks[j] + addTerm + tempIAdd) & mask;
-                    }
-                }
+
+        // 动态扩展factors数组（如果需要）
+        while (factors.length < m) {
+            const j = factors.length; // 当前要添加的索引
+            
+            // 计算初始factor值 (30805 ^ 30805<<... ^ 30805>>... | (j+2)) & mask
+            const shiftLeft = frag_factor * j;
+            const shiftRight = subBlockSize - (shiftLeft % subBlockSize);
+            let factorVal = 30805 ^ (30805 << shiftLeft) ^ (30805 >>> shiftRight);
+            factorVal = (factorVal ^ (j + 2)) & mask;
+            factors.push(factorVal);
+            
+            // 重复密钥列表 (长度 = ceil(m / keyLen) * keyLen)
+            const repeatCount = Math.floor(m / keyBlockList.length) + 1;
+            const repeatedKeyList = [];
+            for (let r = 0; r < repeatCount; r++) {
+                repeatedKeyList.push(...keyBlockList);
             }
+            
+            // 遍历重复密钥列表更新temp_i_add和factors
+            for (let index = 0; index < repeatedKeyList.length; index++) {
+                const i_val = repeatedKeyList[index];
+                const shiftAmt = index % subBlockSize;
+                
+                // 计算移位值 (注意JS的>>>用于无符号右移)
+                const shiftedLeft = (i_val << shiftAmt) & mask;
+                const shiftedRight = (i_val >>> (subBlockSize - shiftAmt)) & mask;
+                
+                // 更新temp_i_add: ^= i ^ (i<<s) ^ (i>>s)
+                temp_i_add ^= i_val ^ shiftedLeft ^ shiftedRight;
+                temp_i_add &= mask; // 保持在子块范围内
+                
+                // 更新factors中对应位置 (index % (j+1))
+                const pos = index % (j + 1);
+                factors[pos] ^= temp_i_add;
+                factors[pos] &= mask;
+            }
+        }
+
+        // 单轮处理 (for _ in range(1))
+        for (let j = 0; j < m; j++) {
+            // 处理前一个子块值 (m>1时循环取前一个，否则0)
+            const prev_val = (m > 1) ? plainTextSubblocks[pythonMod(j - 1, m)] : 0;
+            
+            // 核心操作: subblock ^= (temp_i_add ^ factors[j] ^ prev_val)
+            const addTerm = factors[j] ^ prev_val;
+            plainTextSubblocks[j] = (plainTextSubblocks[j] ^ addTerm) & mask;
         }
         
         cipherTextBlockList.push(plainTextSubblocks);
     }
-    
     return cipherTextBlockList;
 }
+
 
 // 线性移位解密
 function linearShiftBackward(cipherTextBlockList, keyBlockList, subBlockSize = 16) {
@@ -330,40 +358,68 @@ function linearShiftBackward(cipherTextBlockList, keyBlockList, subBlockSize = 1
     const mask = subBlockSpaces - 1;
     const plainTextBlockList = [];
     
+    // 在函数作用域初始化（与Python相同，跨块累积状态）
+    const frag_factor = Math.floor(subBlockSize / Math.max(3, Math.floor(subBlockSize / 16)));
+    let factors = [];
+    let temp_i_add = 0;
+
     for (const cipherTextBlock of cipherTextBlockList) {
+        // 处理单个整数或数组形式的输入块
         const cipherTextBlocks = Array.isArray(cipherTextBlock) ? cipherTextBlock : [cipherTextBlock];
+        
+        // 展平为子块列表
         let cipherTextSubblocks = [];
-        
-        for (const i of cipherTextBlocks) {
-            cipherTextSubblocks.push(...decimalToBase(i, subBlockSpaces));
+        for (const num of cipherTextBlocks) {
+            cipherTextSubblocks.push(...decimalToBase(num, subBlockSpaces));
         }
-        
         const m = cipherTextSubblocks.length;
-        
-        for (let round = 0; round < 1; round++) {
-            for (let index = keyBlockList.length - 1; index >= 0; index--) {
-                const i = keyBlockList[index];
-                const tempIAdd = i + Math.floor(i / 3) + Math.floor(i / 17);
-                const tempIndex = index + 1;
-                
-                // 预计算所有j的因子
-                const factors = [];
-                for (let j = 0; j < m; j++) {
-                    factors.push(tempIndex * (j + 2));
-                }
-                
-                for (let j = m - 1; j >= 0; j--) {
-                    // 反向第二个操作
-                    if (j > 0 ||1) {
-                        const prevVal = m-1? cipherTextSubblocks[pythonMod(j - 1, m)] : 0;
-                        const addTerm = i + factors[j] + prevVal;
-                        cipherTextSubblocks[j] = pythonMod(cipherTextSubblocks[j] -tempIAdd- addTerm, subBlockSpaces);
-                    }
-                    
-                    // 反向第一个操作
-                    //cipherTextSubblocks[j] = pythonMod(cipherTextSubblocks[j] - tempIAdd - factors[j], subBlockSpaces);
-                }
+
+        // 动态扩展factors数组（如果需要）
+        while (factors.length < m) {
+            const j = factors.length; // 当前要添加的索引
+            
+            // 计算初始factor值 (30805 ^ 30805<<... ^ 30805>>... | (j+2)) & mask
+            const shiftLeft = frag_factor * j;
+            const shiftRight = subBlockSize - (shiftLeft % subBlockSize);
+            let factorVal = 30805 ^ (30805 << shiftLeft) ^ (30805 >>> shiftRight);
+            factorVal = (factorVal ^ (j + 2)) & mask;
+            factors.push(factorVal);
+            
+            // 重复密钥列表 (长度 = ceil(m / keyLen) * keyLen)
+            const repeatCount = Math.floor(m / keyBlockList.length) + 1;
+            const repeatedKeyList = [];
+            for (let r = 0; r < repeatCount; r++) {
+                repeatedKeyList.push(...keyBlockList);
             }
+            
+            // 遍历重复密钥列表更新temp_i_add和factors
+            for (let index = 0; index < repeatedKeyList.length; index++) {
+                const i_val = repeatedKeyList[index];
+                const shiftAmt = index % subBlockSize;
+                
+                // 计算移位值 (注意JS的>>>用于无符号右移)
+                const shiftedLeft = (i_val << shiftAmt) & mask;
+                const shiftedRight = (i_val >>> (subBlockSize - shiftAmt)) & mask;
+                
+                // 更新temp_i_add: ^= i ^ (i<<s) ^ (i>>s)
+                temp_i_add ^= i_val ^ shiftedLeft ^ shiftedRight;
+                temp_i_add &= mask; // 保持在子块范围内
+                
+                // 更新factors中对应位置 (index % (j+1))
+                const pos = index % (j + 1);
+                factors[pos] ^= temp_i_add;
+                factors[pos] &= mask;
+            }
+        }
+
+        // 单轮处理 (for _ in range(1))
+        for (let j = m-1; j >= 0; j--) {
+            // 处理前一个子块值 (m>1时循环取前一个，否则0)
+            const prev_val = (m > 1) ? cipherTextSubblocks[pythonMod(j - 1, m)] : 0;
+            
+            // 核心操作: subblock ^= (temp_i_add ^ factors[j] ^ prev_val)
+            const addTerm = factors[j] ^ prev_val;
+            cipherTextSubblocks[j] = (cipherTextSubblocks[j] ^ addTerm) & mask;
         }
         
         plainTextBlockList.push(cipherTextSubblocks);
@@ -376,6 +432,17 @@ function linearShiftBackward(cipherTextBlockList, keyBlockList, subBlockSize = 1
 function linearSwapForward(plainTextBlockList, keyBlockList, subBlockSize = 16) {
     const subBlockSpaces = 2 ** subBlockSize;
     const cipherTextBlockList = [];
+    const mask = subBlockSpaces - 1;
+    const m = keyBlockList.length;
+
+    let temp_i_add = 30805&mask
+    let factors = [];
+    for (let r = 0; r < m; r++) { factors.push(temp_i_add); }
+    for (let idx=0; idx < m; idx++){
+        i = keyBlockList[idx];
+        temp_i_add = temp_i_add ^ i ^ (i << (idx)%subBlockSize)&mask ^ (i >>> (subBlockSize-(idx)%subBlockSize))%mask
+        factors[idx%m] ^= temp_i_add
+    }
     
     for (const plainTextBlock of plainTextBlockList) {
         const plainTextBlocks = Array.isArray(plainTextBlock) ? plainTextBlock : [plainTextBlock];
@@ -391,30 +458,26 @@ function linearSwapForward(plainTextBlockList, keyBlockList, subBlockSize = 16) 
             continue;
         }
         
-        const opralen = Math.floor(subblocklen / 10);
         const keyLen = keyBlockList.length;
         
         for (let index = 0; index < keyLen; index++) {
             const currentKey = keyBlockList[index];
-            const maxJ = 4 + opralen + Math.floor(subblocklen/2);
+            const currentTemp = currentKey ^ (currentKey<<(index%subBlockSize)) ^ (currentKey>>>(subBlockSize - index%subBlockSize))
+
+            let factorA = pythonMod(currentTemp , subblocklen);
+            let factorB = pythonMod(currentKey ^ factors[index], subblocklen);
             
-            for (let j = 0; j < maxJ; j++) {
-                const currentTemp = index + j;
-                const modTemp = pythonMod(currentTemp, subblocklen);
-                let factorA = pythonMod(modTemp * (modTemp + opralen), subblocklen);
-                let factorB = pythonMod(currentTemp + 1 + currentKey, subblocklen);
-                
-                if (factorA !== 0 && factorB !== factorA - 1) {
-                    const factorB2 = pythonMod(factorB + plainTextSubblocks[factorA - 1], subblocklen);
-                    if (factorB2 !== factorA - 1) factorB = factorB2;
-                }
-                
-                if (factorA !== factorB) {
-                    // 交换元素
-                    [plainTextSubblocks[factorA], plainTextSubblocks[factorB]] = 
-                        [plainTextSubblocks[factorB], plainTextSubblocks[factorA]];
-                }
+            if (factorA !== 0 && factorB !== factorA - 1) {
+                const factorB2 = pythonMod(factorB ^ plainTextSubblocks[pythonMod(factorA - 1, subblocklen)], subblocklen);
+                if (factorB2 !== factorA - 1) factorB = factorB2;
             }
+            
+            if (factorA !== factorB) {
+                // 交换元素
+                [plainTextSubblocks[factorA], plainTextSubblocks[factorB]] = 
+                    [plainTextSubblocks[factorB], plainTextSubblocks[factorA]];
+            }
+        
         }
         
         cipherTextBlockList.push(plainTextSubblocks);
@@ -427,6 +490,17 @@ function linearSwapForward(plainTextBlockList, keyBlockList, subBlockSize = 16) 
 function linearSwapBackward(cipherTextBlockList, keyBlockList, subBlockSize = 16) {
     const subBlockSpaces = 2 ** subBlockSize;
     const plainTextBlockList = [];
+    const mask = subBlockSpaces - 1;
+    const m = keyBlockList.length;
+
+    let temp_i_add = 30805&mask
+    let factors = [];
+    for (let r = 0; r < m; r++) { factors.push(temp_i_add); }
+    for (let idx=0; idx < m; idx++){
+        i = keyBlockList[idx];
+        temp_i_add = temp_i_add ^ i ^ (i << (idx)%subBlockSize)&mask ^ (i >>> (subBlockSize-(idx)%subBlockSize))%mask
+        factors[idx%m] ^= temp_i_add
+    }
     
     for (const cipherTextBlock of cipherTextBlockList) {
         const cipherTextBlocks = Array.isArray(cipherTextBlock) ? cipherTextBlock : [cipherTextBlock];
@@ -438,34 +512,30 @@ function linearSwapBackward(cipherTextBlockList, keyBlockList, subBlockSize = 16
         
         const subblocklen = cipherTextSubblocks.length;
         if (subblocklen === 0) {
-            //plainTextBlockList.push([0]);
+            //cipherTextBlockList.push([0]);
             continue;
         }
         
-        const opralen = Math.floor(subblocklen / 10);
         const keyLen = keyBlockList.length;
         
-        for (let index = keyLen - 1; index >= 0; index--) {
+        for (let index = keyLen-1; index >=0; index--) {
             const currentKey = keyBlockList[index];
-            const maxJ = 4 + opralen  + Math.floor(subblocklen/2);
+            const currentTemp = currentKey ^ (currentKey<<(index%subBlockSize)) ^ (currentKey>>>(subBlockSize - index%subBlockSize))
+
+            let factorA = pythonMod(currentTemp , subblocklen);
+            let factorB = pythonMod(currentKey ^ factors[index], subblocklen);
             
-            for (let j = maxJ - 1; j >= 0; j--) {
-                const currentTemp = index + j;
-                const modTemp = pythonMod(currentTemp, subblocklen);
-                let factorA = pythonMod(modTemp * (modTemp + opralen), subblocklen);
-                let factorB = pythonMod(currentTemp + 1 + currentKey, subblocklen);
-                
-                if (factorA !== 0 && factorB !== factorA - 1) {
-                    const factorB2 = pythonMod(factorB + cipherTextSubblocks[factorA - 1], subblocklen);
-                    if (factorB2 !== factorA - 1) factorB = factorB2;
-                }
-                
-                if (factorA !== factorB) {
-                    // 交换元素
-                    [cipherTextSubblocks[factorA], cipherTextSubblocks[factorB]] = 
-                        [cipherTextSubblocks[factorB], cipherTextSubblocks[factorA]];
-                }
+            if (factorA !== 0 && factorB !== factorA - 1) {
+                const factorB2 = pythonMod(factorB ^ cipherTextSubblocks[pythonMod(factorA - 1, subblocklen)], subblocklen);
+                if (factorB2 !== factorA - 1) factorB = factorB2;
             }
+            
+            if (factorA !== factorB) {
+                // 交换元素
+                [cipherTextSubblocks[factorA], cipherTextSubblocks[factorB]] = 
+                    [cipherTextSubblocks[factorB], cipherTextSubblocks[factorA]];
+            }
+        
         }
         
         plainTextBlockList.push(cipherTextSubblocks);
