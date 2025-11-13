@@ -141,6 +141,7 @@
             document.getElementById("openInNewPage").innerHTML =  "Open in New Page: "+ (openInNewPage?"On":"Off");
         }
         let data_cache = {};
+        let data_cache_time = 0;
         async function loadData() {
             document.getElementById("please-wait").style.display = "block";
             document.getElementById("loadData").setAttribute("disabled", "");
@@ -168,6 +169,7 @@
                 document.getElementById("please-wait").style.display = "none";
                 document.getElementById("loadData").removeAttribute("disabled");
                 data_cache = decryptedData;
+                data_cache_time = new Date();
                 applySettings();
                 renderTable(decryptedData);
             } catch (error) {
@@ -185,7 +187,7 @@
 
         function renderTable(data) {
             let html = `
-                <p>Query at ${new Date().toLocaleString()}</p>
+                <p>Query at ${data_cache_time.toLocaleString()}</p>
                 <table>
                     <tr>
                         <th>Currency</th>
