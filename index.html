@@ -48,23 +48,29 @@
         <input type="password" id="apiKey" style="width: 300px;">
         <button id="inputDecryptKey" onclick="toggleKeyLine()">Input Decrypt Key</button>
         <button id="loadData" onclick="loadData()">Load Data</button>
+        <button onclick="toggleSettingsDiv()">Show/Hide Settings</button>
     </div>
     <div id="decryptKeyLine" style="display: none">
         <label for="apiKey">Decrypt Key:</label>
         <input type="password" id="decryptKey" style="width: 300px;">
         <button onclick="toggleKeyLine()">Cancel</button>
         <button id="decryptAuthKey" onclick="(()=>{decryptKey();loadData();})()">Decrypt Auth Key & Load Data</button>
-    </div><br>  
-    <div>
-        <label for="currencyFilter">Currencies to display (space separated):</label>
-        <input type="text" id="currencyFilter" style="width: 400px;">
+        <button onclick="toggleSettingsDiv()">Show/Hide Settings</button>
     </div>
-    <div>
-        <label for="masterCurrencyInput">Master Currency:</label>
-        <input type="text" id="masterCurrencyInput" style="width: 80px;" value="HKD">
-        <button id="applySettings" onclick="applySettings()">Apply</button>
-        <button id="openInNewPage" onclick="toggleOpenInNewPage()">Open in New Page: On</button>
-    </div>
+    <div id="settingsDiv" style="display: none">
+        <br>
+        <div>
+            <label for="currencyFilter">Currencies to display (space separated):</label>
+            <input type="text" id="currencyFilter" style="width: 400px;">
+        </div>
+        <div>
+            <label for="masterCurrencyInput">Master Currency:</label>
+            <input type="text" id="masterCurrencyInput" style="width: 80px;" value="HKD">
+            <button id="applySettings" onclick="applySettings()">Apply</button>
+            <button id="openInNewPage" onclick="toggleOpenInNewPage()">Open in New Page: On</button>
+        </div>
+    </div> 
+    
     <table id="please-wait" style="display: none; height:30px; width:150px; background-color:#fff348" class="alert-msg" > 
         <tr><td>Please Wait</td></tr>
     </table>
@@ -73,7 +79,7 @@
 
     <script>
         const BASE64_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+/"
-        const API_URL = "https://script.google.com/macros/s/AKfycbx7mShYwK6xdpUdjGZEjF9E2g9rdCyjzy10kqd21-RkSRMRwbl7m0U6WTpSrDTe-K0D/exec";
+        const API_URL = "https://script.google.com/macros/s/AKfycbx0-YwpJ-V8Uq_hG9QbzvOq7ZOWtccLYg3JUYHC2v6AzE1mRbMb1KTaG8S5_TQsEdf_/exec";
         const CONFIG = {
             //CURRENCY_LIST: ['CNY','HKD','USD','CAD','AUD','JPY','GBP','NZD','KRW','SGD','EUR','BTC','XAU','XAG'],
             //MASTER_CURRENCY: "HKD",
@@ -93,6 +99,11 @@
                 const e=document.getElementById(i); 
                 e.style.display = e.style.display==="none"?"block":"none"});
             Array.from(document.getElementsByTagName('input')).filter(e => e.offsetParent !== null)[0].focus();
+        }
+
+        function toggleSettingsDiv(){
+            const e = document.getElementById("settingsDiv");
+            e.style.display = e.style.display==="none"?"block":"none";
         }
 
         function decryptKey(){
@@ -119,9 +130,8 @@
             const currencyInput = document.getElementById('currencyFilter').value.trim();
             const masterInput = document.getElementById('masterCurrencyInput').value.trim().toUpperCase();
             
-            currentSettings.currencyList = currencyInput 
-                ? currencyInput.split(/\s+/).map(c => c.toUpperCase())
-                : Object.keys(data_cache.rates ? data_cache.rates:{});
+            currentSettings.currencyList = currencyInput? 
+                currencyInput.split(/\s+/).map(c => c.toUpperCase()) : {};
             
             currentSettings.masterCurrency = masterInput || "USD";
             
@@ -150,7 +160,6 @@
             try {
                 const { timestamp, nonce, signature } = generateSignature(apiKey);
                 const dataKey = encryptText(apiKey, timestamp + nonce);
-                console.log(`dataKey=${dataKey}`);
                 
                 const params = new URLSearchParams({
                     timestamp,
@@ -158,9 +167,9 @@
                     nonce,
                     data: encryptText(JSON.stringify(CONFIG), dataKey)
                 });
-
+                
+                console.log(`dataKey=${dataKey}, Request to ${API_URL}?${params}`)
                 const response = await fetch(`${API_URL}?${params}`);
-                console.log(`${API_URL}?${params}`)
                 jsonData = await response.json();
                 console.log(jsonData);
                 const decryptedData = JSON.parse(
@@ -168,10 +177,11 @@
                 );
                 document.getElementById("please-wait").style.display = "none";
                 document.getElementById("loadData").removeAttribute("disabled");
+                console.log(decryptedData);
                 data_cache = decryptedData;
                 data_cache_time = new Date();
                 applySettings();
-                renderTable(decryptedData);
+                //renderTable(decryptedData);
             } catch (error) {
                 console.error('Error:', error);
                 document.getElementById("please-wait").style.display = "none";
@@ -187,7 +197,7 @@
 
         function renderTable(data) {
             let html = `
-                <p>Query at ${data_cache_time.toLocaleString()}</p>
+                <p>Query at ${data_cache_time.toLocaleString()}, Server data is at ${new Date(data.timestamp).toLocaleString()}</p>
                 <table>
                     <tr>
                         <th>Currency</th>
@@ -205,13 +215,17 @@
             const currencyFilter = currentSettings.currencyList;
             
             // 获取主货币汇率
-            let rateToMaster;
+            let rateToMaster; let volatilitiesToMaster;
             let allCurrencies = [];
-            data.forEach(currency => {
+            data.rates.forEach(currency => {
                 allCurrencies.push(currency.currency);
-                if(currency.currency===masterCurrency){rateToMaster=currency.rate;}
+                if(currency.currency===masterCurrency){
+                    rateToMaster=currency.rate; 
+                    volatilitiesToMaster = currency.volatilities;
+                }
             })
-            if (!rateToMaster) {
+
+            if (!rateToMaster || !volatilitiesToMaster) {
                 document.getElementById('result').innerHTML = `<p class="warning">Error: Master currency ${masterCurrency} not found in data ${allCurrencies}</p>`;
                 return;
             }
@@ -221,26 +235,32 @@
                 ? currencyFilter.filter(c => allCurrencies.includes(c))
                 : allCurrencies;
 
-            const displayCurrenciesData = data
+            const displayCurrenciesData = data.rates
                 .filter(c => displayCurrencies.includes(c.currency) )
                 .sort((a, b) => displayCurrencies.indexOf(a.currency) - displayCurrencies.indexOf(b.currency));
 
             // 计算转换后的汇率
             let convertedData = displayCurrenciesData.map((currency, idx) => {
-                let rate, inverse;
+                let rate, inverse, volatilities;
                 if (currency === masterCurrency) {
                     rate = 1;
                     inverse = 1;
+                    volatilities: currency.volatilities;
                 } else {
                     const currencyRate = currency.rate;
                     rate = currencyRate ? currencyRate / rateToMaster : null;
                     inverse = currencyRate ? rateToMaster / currencyRate : null;
+                    volatilities = structuredClone(currency.volatilities);
+                    const VMaster = volatilitiesToMaster ; const VThis = currency.volatilities; 
+                    Object.keys(VThis).forEach( period => {volatilities[period].value = 
+                        [undefined, null].includes(VMaster[period]) ? null : 
+                        (VThis[period].value - VMaster[period].value) / (1 + VMaster[period].value)} )
                 }
                 return {
                     currency: currency.currency,
                     rate: rate==null? null: rate,
                     inverse: inverse,
-                    volatilities: currency.volatilities,
+                    volatilities: volatilities,
                 };
             });
             
